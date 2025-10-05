@@ -36,9 +36,17 @@ namespace Microservice_HabitLogs.Controllers
 
             if (verify != null)
             {
-                verify.date = DateOnly.FromDateTime(DateTime.Now);
-                verify.amount = verify.amount + 1;
-
+                if(verify.goalType == GoalType.Bool && verify.amount >= 1)
+                {
+                    verify.date = DateOnly.FromDateTime(DateTime.Now);
+                    verify.amount = 1;
+                }
+                else
+                {
+                    verify.date = DateOnly.FromDateTime(DateTime.Now);
+                    verify.amount = verify.amount + 1;
+                }
+                    
                 //configurando material de medalha
                 var badge = new Badge
                 {
@@ -102,7 +110,14 @@ namespace Microservice_HabitLogs.Controllers
             {
                 return BadRequest("Você já garantiu sua constancia por hoje");
             }
-
+            if (badgeAL.date < limite)
+            {
+                badgeAL.consistency = 1;
+                badgeAL.date = DateOnly.FromDateTime(DateTime.Now);
+                await _context.SaveChangesAsync();
+                return BadRequest("Você não conseguiu manter sua consistencia");
+            }
+            //verificador de 10 logs na ultima semana
             var habitos = await _context.HabitsLogs
             .Where(h => h.date >= semana && h.clientId == clientId).ToListAsync();
             int index = 0;
@@ -112,16 +127,25 @@ namespace Microservice_HabitLogs.Controllers
             {
                 badgeAL.consistency = badgeAL.consistency + 1;
                 badgeAL.date = DateOnly.FromDateTime(DateTime.Now);
-                badgeAL.badge = Badg3.Bronze;
+
+                //calculo de porcentagem feita
+
+                var Habitos = await _context.Habits
+            .FirstOrDefaultAsync(h => h.clientId == clientId && h.Id == id);
+                var Logs = await _context.HabitsLogs
+            .FirstOrDefaultAsync(h => h.clientId == clientId && h.HabitId == id);
+
+
+                double percent = (Convert.ToDouble(Logs?.amount) / Convert.ToDouble(Habitos?.goal)) * 100;
+
+                if(percent >= 30.00 && percent <= 59.99) badgeAL.badge = Badg3.Bronze;
+
+                if(percent >= 60.00 && percent <= 99.99) badgeAL.badge = Badg3.Silver;
+
+                if(percent >= 100.00) badgeAL.badge = Badg3.Gold;
+
                 await _context.SaveChangesAsync();
                 return NoContent();
-            }
-
-            if (badgeAL.date < limite)
-            {
-                badgeAL.consistency = 0;
-                await _context.SaveChangesAsync();
-                return BadRequest("Você não conseguiu manter sua constancia");
             }
 
             badgeAL.consistency = badgeAL.consistency + 1;
@@ -129,6 +153,7 @@ namespace Microservice_HabitLogs.Controllers
             await _context.SaveChangesAsync();
             return CreatedAtAction(nameof(CreateBadge), new { id = badgeAL.Id }, badgeAL);
         }
+
         [HttpGet("stats/weekly")]
         public async Task<ActionResult> GetByWeekly(string clientId)
         {
@@ -154,6 +179,7 @@ namespace Microservice_HabitLogs.Controllers
             });
             return Ok(TrueValue);
         }
+
         [HttpGet("badges")]
         public async Task<ActionResult> GetByBadge(string badge, string clientId)
         {
@@ -181,14 +207,15 @@ namespace Microservice_HabitLogs.Controllers
 
             return NotFound("você não possui esse tipo de medalhas");
         }
+
         [HttpPut("verifyAmount")]
         public async Task<IActionResult> VerifyAmountsFromLogs(string clientId)
         {
             var hoje = DateOnly.FromDateTime(DateTime.Now);
-            var limite = hoje.AddDays(-1);
+            var limite = hoje.AddDays(-7);
 
             var habitos = await _context.HabitsLogs
-                .Where(h => h.clientId == clientId)
+                .Where(h => h.clientId == clientId && h.date <= limite)
                 .ToListAsync();
 
             if (!habitos.Any())
@@ -198,11 +225,8 @@ namespace Microservice_HabitLogs.Controllers
 
             foreach (var i in habitos)
             {
-                if (i.date <= limite)
-                {
-                    i.amount = 0;
-                    i.date = DateOnly.FromDateTime(DateTime.Now);
-                }
+               i.amount = 0;
+               i.date = DateOnly.FromDateTime(DateTime.Now);
             }
 
             await _context.SaveChangesAsync();
